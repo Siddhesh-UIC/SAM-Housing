@@ -1,0 +1,42 @@
+services:
+  db:
+    image: mysql:8.0
+    container_name: sam-housing-db
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpass
+      MYSQL_DATABASE: housing
+      MYSQL_USER: housing
+      MYSQL_PASSWORD: housing123
+    command: >
+      --general-log=1 --general-log-file=/var/lib/mysql/general.log
+      --log-output=FILE --default-authentication-plugin=mysql_native_password
+    ports:
+      - "${MYSQL_PORT:-3306}:3306"
+    volumes:
+      - ./db/init:/docker-entrypoint-initdb.d:ro
+      - mysqldata:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-u", "housing", "-phousing123"]
+      interval: 3s
+      retries: 30
+
+  api:
+    build: ./api
+    container_name: sam-housing-api
+    environment:
+      DATABASE_HOST: db
+      DATABASE_PORT: 3306
+      DATABASE_USER: housing
+      DATABASE_PASSWORD: housing123
+      DATABASE_NAME: housing
+      MYSQL_LOG_FILE: /mysqldata/general.log
+    ports:
+      - "${API_PORT:-8000}:8000"
+    volumes:
+      - mysqldata:/mysqldata:ro
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  mysqldata:
