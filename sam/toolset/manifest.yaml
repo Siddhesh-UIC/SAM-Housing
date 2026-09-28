@@ -1,0 +1,34 @@
+version: 1
+tools:
+  get_customer:
+    runtime: python
+    executable: ./housing_tools.py
+    timeout_seconds: 15
+  get_bookings:
+    runtime: python
+    executable: ./housing_tools.py
+    timeout_seconds: 15
+  get_payments:
+    runtime: python
+    executable: ./housing_tools.py
+    timeout_seconds: 15
+  get_payment_summary:
+    runtime: python
+    executable: ./housing_tools.py
+    timeout_seconds: 15
+  get_documents:
+    runtime: python
+    executable: ./housing_tools.py
+    timeout_seconds: 15
+  get_tds_records:
+    runtime: python
+    executable: ./housing_tools.py
+    timeout_seconds: 15
+  get_cases:
+    runtime: python
+    executable: ./housing_tools.py
+    timeout_seconds: 15
+  raise_case:
+    runtime: python
+    executable: ./housing_tools.py
+    timeout_seconds: 15
