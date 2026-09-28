@@ -1,167 +1,110 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>SAM Housing — Data Viewer</title>
-<style>
-:root { --bg: #0f172a; --card: #1e293b; --border: #334155; --accent: #3b82f6;
-        --accent-hover: #2563eb; --text: #e2e8f0; --muted: #94a3b8; --danger: #ef4444;
-        --success: #22c55e; --warn: #f59e0b; --font: 'Segoe UI', system-ui, sans-serif; }
-* { box-sizing: border-box; margin: 0; padding: 0; }
-body { font-family: var(--font); background: var(--bg); color: var(--text); padding: 1rem; }
-h1 { font-size: 1.4rem; margin-bottom: 1rem; display: flex; align-items: center; gap: .5rem; }
-h1 span { font-size: .75rem; color: var(--muted); background: var(--card); padding: .2rem .5rem; border-radius: 4px; }
-.tabs { display: flex; flex-wrap: wrap; gap: .25rem; margin-bottom: 1rem; }
-.tabs button { background: var(--card); color: var(--muted); border: 1px solid var(--border);
-               padding: .4rem .8rem; border-radius: 6px 6px 0 0; cursor: pointer; font-size: .8rem; }
-.tabs button.active { background: var(--accent); color: #fff; border-color: var(--accent); }
-.tabs button:hover:not(.active) { background: var(--border); color: var(--text); }
-table { width: 100%; border-collapse: collapse; font-size: .78rem; margin-bottom: 1rem; }
-th { background: var(--card); position: sticky; top: 0; text-align: left; padding: .5rem; color: var(--muted);
-     border-bottom: 2px solid var(--accent); text-transform: uppercase; font-size: .7rem; letter-spacing: .05em; }
-td { padding: .45rem .5rem; border-bottom: 1px solid var(--border); white-space: nowrap;
-     max-width: 300px; overflow: hidden; text-overflow: ellipsis; }
-tr:hover td { background: rgba(59,130,246,.07); }
-.scroll { overflow-x: auto; max-height: 60vh; overflow-y: auto; border: 1px solid var(--border); border-radius: 8px; }
-button.del { background: var(--danger); color: #fff; border: none; padding: .2rem .5rem; border-radius: 4px;
-             cursor: pointer; font-size: .7rem; }
-button.del:hover { opacity: .8; }
-.form-row { display: flex; flex-wrap: wrap; gap: .5rem; align-items: end; margin-bottom: .5rem; padding: .5rem;
-            background: var(--card); border-radius: 8px; border: 1px solid var(--border); }
-.form-row label { font-size: .72rem; color: var(--muted); display: flex; flex-direction: column; gap: .15rem; }
-.form-row input, .form-row select { background: var(--bg); color: var(--text); border: 1px solid var(--border);
-                                      padding: .3rem .5rem; border-radius: 4px; font-size: .78rem; min-width: 120px; }
-.form-row input:focus, .form-row select:focus { border-color: var(--accent); outline: none; }
-button.add { background: var(--success); color: #fff; border: none; padding: .4rem .8rem; border-radius: 4px;
-             cursor: pointer; font-size: .78rem; font-weight: 600; }
-button.add:hover { opacity: .85; }
-.msg { font-size: .78rem; padding: .3rem .6rem; border-radius: 4px; display: inline-block; margin-left: .5rem; }
-.msg.err { background: rgba(239,68,68,.15); color: var(--danger); }
-.msg.ok { background: rgba(34,197,94,.15); color: var(--success); }
-.status { display: inline-block; padding: .1rem .4rem; border-radius: 3px; font-size: .7rem; font-weight: 600; }
-.status.ACTIVE, .status.OPEN, .status.VERIFIED, .status.ISSUED, .status.SUCCESS { background: rgba(34,197,94,.15); color: var(--success); }
-.status.BOOKED, .status.IN_PROGRESS, .status.SUBMITTED, .status.DISPATCHED { background: rgba(59,130,246,.15); color: var(--accent); }
-.status.BLOCKED, .status.CLOSED, .status.CANCELLED, .status.REJECTED { background: rgba(239,68,68,.15); color: var(--danger); }
-.status.ESCALATED, .status.URGENT, .status.HIGH { background: rgba(245,158,11,.15); color: var(--warn); }
-.status.PENDING, .status.DORMANT { background: rgba(148,163,184,.15); color: var(--muted); }
-</style>
-</head>
-<body>
-<h1>🏠 SAM Housing — Data Viewer <span>localhost:8000</span></h1>
-<div class="tabs" id="tabs"></div>
-<div id="form-area"></div>
-<div class="scroll" id="table-area"></div>
-
-<script>
-const TABLES = ['call_log','projects','units','customers','bookings','payments','documents','tds_records','cases','case_comments'];
-const STATUS_COLS = ['status','booking_status','unit_status','doc_status','case_status','tds_status','priority','outcome'];
-let active = 'call_log', forms = {}, deletable = [];
-
-function $(id) { return document.getElementById(id); }
-function h(s) { return s == null ? '' : String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;'); }
-
-function statusCell(col, val) {
-    if (!val) return h(val);
-    if (STATUS_COLS.includes(col)) return `<span class="status ${h(val)}">${h(val)}</span>`;
-    return h(val);
-}
-
-function renderTabs() {
-    $('tabs').innerHTML = TABLES.map(t =>
-        `<button class="${t===active?'active':''}" onclick="switchTab('${t}')">${t.replace(/_/g,' ')}</button>`
-    ).join('');
-}
-
-async function switchTab(name) {
-    active = name;
-    renderTabs();
-    if (name === 'call_log') { await loadLogs(); return; }
-    await loadTable(name);
-}
-
-async function loadTable(name) {
-    try {
-        const rows = await (await fetch(`/admin/tables/${name}`)).json();
-        if (!rows.length) { $('table-area').innerHTML = '<p style="padding:1rem;color:var(--muted)">No rows</p>'; $('form-area').innerHTML = ''; return; }
-        const cols = Object.keys(rows[0]);
-        let html = '<table><tr>' + cols.map(c => `<th>${h(c)}</th>`).join('');
-        if (deletable.includes(name)) html += '<th></th>';
-        html += '</tr>';
-        rows.forEach(r => {
-            html += '<tr>' + cols.map(c => `<td title="${h(r[c])}">${statusCell(c, r[c])}</td>`).join('');
-            if (deletable.includes(name)) html += `<td><button class="del" onclick="delRow('${name}',${r.id})">Delete</button></td>`;
-            html += '</tr>';
-        });
-        html += '</table>';
-        $('table-area').innerHTML = html;
-        renderForm(name);
-    } catch(e) { $('table-area').innerHTML = `<p class="msg err">${e}</p>`; }
-}
-
-function renderForm(name) {
-    const f = forms[name];
-    if (!f) { $('form-area').innerHTML = ''; return; }
-    let html = '<div class="form-row">';
-    for (const [field, type] of Object.entries(f)) {
-        if (Array.isArray(type)) {
-            html += `<label>${field}<select id="f_${field}">${type.map(o=>`<option>${o}</option>`).join('')}</select></label>`;
-        } else {
-            html += `<label>${field}<input id="f_${field}" type="${type==='number'?'number':type==='date'?'date':'text'}"></label>`;
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>SAM Housing — Data Viewer</title>
+    <style>
+        :root {
+            --bg: #0f172a;
+            --card: #1e293b;
+            --border: #334155;
+            --accent: #3b82f6;
+            --text: #e2e8f0;
+            --muted: #94a3b8;
+            --font: 'Segoe UI', system-ui, sans-serif;
         }
-    }
-    html += `<button class="add" onclick="addRow('${name}')">+ Add record</button><span id="form-msg"></span></div>`;
-    $('form-area').innerHTML = html;
-}
 
-async function addRow(name) {
-    const f = forms[name]; if (!f) return;
-    const body = {};
-    for (const field of Object.keys(f)) { body[field] = document.getElementById('f_'+field)?.value ?? ''; }
-    try {
-        const r = await fetch(`/admin/tables/${name}`, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)});
-        const d = await r.json();
-        if (!r.ok) { $('form-msg').className='msg err'; $('form-msg').textContent=d.detail||JSON.stringify(d); return; }
-        $('form-msg').className='msg ok'; $('form-msg').textContent=`Added id ${d.id}`;
-        await loadTable(name);
-    } catch(e) { $('form-msg').className='msg err'; $('form-msg').textContent=String(e); }
-}
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
 
-async function delRow(name, id) {
-    if (!confirm(`Delete row ${id}?`)) return;
-    try {
-        const r = await fetch(`/admin/tables/${name}/${id}`, {method:'DELETE'});
-        if (!r.ok) { const d = await r.json(); alert(d.detail||'Error'); return; }
-        await loadTable(name);
-    } catch(e) { alert(e); }
-}
+        body {
+            font-family: var(--font);
+            background: var(--bg);
+            color: var(--text);
+            padding: 1rem;
+        }
 
-async function loadLogs() {
-    $('form-area').innerHTML = '';
-    try {
-        const rows = await (await fetch('/admin/logs?limit=200')).json();
-        if (!rows.length) { $('table-area').innerHTML = '<p style="padding:1rem;color:var(--muted)">No agent calls yet</p>'; return; }
-        const cols = ['logged_at','source','request','result','ms'];
-        let html = '<table><tr>' + cols.map(c=>`<th>${c}</th>`).join('') + '</tr>';
-        rows.forEach(r => {
-            html += '<tr>' + cols.map(c=>`<td>${h(r[c])}</td>`).join('') + '</tr>';
-        });
-        html += '</table>';
-        $('table-area').innerHTML = html;
-    } catch(e) { $('table-area').innerHTML = `<p class="msg err">${e}</p>`; }
-}
+        h1 {
+            font-size: 1.4rem;
+            margin-bottom: 1rem;
+            display: flex;
+            align-items: center;
+            gap: .5rem;
+        }
 
-(async () => {
-    renderTabs();
-    try {
-        const f = await (await fetch('/admin/forms')).json();
-        forms = f.forms || {};
-        deletable = f.deletable || [];
-    } catch(e) { console.error('forms load:', e); }
-    await switchTab(active);
-    // Auto-refresh call log every 3s when on that tab
-    setInterval(() => { if (active === 'call_log') loadLogs(); }, 3000);
-})();
-</script>
+        h1 span {
+            font-size: .75rem;
+            color: var(--muted);
+            background: var(--card);
+            padding: .2rem .5rem;
+            border-radius: 4px;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: .78rem;
+            margin-bottom: 1rem;
+        }
+
+        th {
+            background: var(--card);
+            position: sticky;
+            top: 0;
+            text-align: left;
+            padding: .5rem;
+            color: var(--muted);
+            border-bottom: 2px solid var(--accent);
+            white-space: nowrap;
+        }
+
+        td {
+            padding: .3rem .5rem;
+            border-bottom: 1px solid var(--border);
+            max-width: 200px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        tr:hover td {
+            background: rgba(59, 130, 246, .07);
+        }
+
+        .scroll {
+            overflow-x: auto;
+            max-height: 85vh;
+            overflow-y: auto;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+        }
+    </style>
+</head>
+
+<body>
+    <h1>🏠 SAM Housing — Data Viewer (Flat File from Excel) <span>localhost:8000</span></h1>
+    <div class="scroll" id="table-area">Loading massive flat table...</div>
+    <script>
+        function h(s) { return s == null ? '' : String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;'); }
+        (async () => {
+            try {
+                const rows = await (await fetch(`/admin/tables/housing_data`)).json();
+                if (!rows.length) { document.getElementById('table-area').innerHTML = '<p>No data</p>'; return; }
+                const cols = Object.keys(rows[0]);
+                let html = '<table><tr>' + cols.map(c => `<th>${h(c)}</th>`).join('') + '</tr>';
+                rows.forEach(r => {
+                    html += '<tr>' + cols.map(c => `<td title="${h(r[c])}">${h(r[c])}</td>`).join('') + '</tr>';
+                });
+                html += '</table>';
+                document.getElementById('table-area').innerHTML = html;
+            } catch (e) { document.getElementById('table-area').innerHTML = `<p>${e}</p>`; }
+        })();
+    </script>
 </body>
+
 </html>
