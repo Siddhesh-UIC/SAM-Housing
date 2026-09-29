@@ -171,7 +171,7 @@
     <!-- Query Panel -->
     <div id="query-panel" class="panel">
         <textarea id="sql-input" class="query-box"
-            placeholder="Write your SQL here...&#10;Example: SELECT CustomerName, BookingNo FROM housing_data WHERE STATUS = 'Active' LIMIT 10;"></textarea>
+            placeholder="Write your SQL here...&#10;Example (SQL Server): SELECT TOP (10) CustomerName, BookingNo FROM housing_data WHERE STATUS = 'Active';"></textarea>
         <div style="margin-bottom: 1rem;"><button class="btn" onclick="runQuery()">Run Query</button></div>
         <div id="query-error" class="error"></div>
         <div class="scroll" id="query-result"><em>Results will appear here</em></div>

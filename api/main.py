@@ -7,13 +7,13 @@ from datetime import datetime
 from pathlib import Path
 from urllib.parse import unquote
 
-import mysql.connector
+import pymssql
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import FileResponse
 
 DB_CONFIG = {
-    "host": os.environ.get("DATABASE_HOST", "127.0.0.1"),
-    "port": int(os.environ.get("DATABASE_PORT", 3306)),
+    "server": os.environ.get("DATABASE_HOST", "127.0.0.1"),
+    "port": int(os.environ.get("DATABASE_PORT", 1433)),
     "user": os.environ.get("DATABASE_USER", "housing"),
     "password": os.environ.get("DATABASE_PASSWORD", "housing123"),
     "database": os.environ.get("DATABASE_NAME", "housing"),
@@ -22,16 +22,16 @@ STATIC = Path(__file__).parent / "static"
 
 app = FastAPI(title="SAM Housing Service - Single Table UI")
 
-def query(sql: str, params: tuple = (), dictionary: bool = True) -> list[dict]:
-    conn = mysql.connector.connect(**DB_CONFIG)
+def query(sql: str, params: tuple | None = None) -> list[dict]:
+    # params=None skips %-substitution, so raw SQL with LIKE '%x%' works in the runner.
+    conn = pymssql.connect(**DB_CONFIG)
     try:
-        cur = conn.cursor(dictionary=dictionary)
+        cur = conn.cursor()
         cur.execute(sql, params)
         results = []
-        try:
-            results = cur.fetchall()
-        except mysql.connector.errors.InterfaceError:
-            pass
+        if cur.description:  # unnamed columns (e.g. COUNT(*)) get col1, col2...
+            names = [d[0] or f"col{i + 1}" for i, d in enumerate(cur.description)]
+            results = [dict(zip(names, row)) for row in cur.fetchall()]
         conn.commit()
         return results
     finally:
@@ -99,7 +99,7 @@ async def execute_query(request: Request):
 
 @app.get("/admin/logs", include_in_schema=False)
 def get_logs(limit: int = Query(200)):
-    return _serialize(query("SELECT * FROM api_request_log ORDER BY id DESC LIMIT %s", (limit,)))
+    return _serialize(query("SELECT TOP (%s) * FROM api_request_log ORDER BY id DESC", (limit,)))
 
 @app.get("/admin/tables/housing_data", include_in_schema=False)
 def get_housing_data():
