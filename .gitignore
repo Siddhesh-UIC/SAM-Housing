@@ -5,3 +5,4 @@ __pycache__/
 *.zip
 page1.png
 page2.png
+.remember/
