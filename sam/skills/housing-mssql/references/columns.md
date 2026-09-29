@@ -8,7 +8,7 @@ All amounts DECIMAL(15,2) INR. Dates are DATE. Blocked for sam_agent: AAdharNo, 
 
 ## Charge-head columns
 
-Pattern: `` `<head>_<metric>` `` — always backtick (names start with a digit).
+Pattern: `[<head>_<metric>]` — always wrap in square brackets (names start with a digit).
 
 | Head | Meaning |
 |---|---|
@@ -21,4 +21,4 @@ Pattern: `` `<head>_<metric>` `` — always backtick (names start with a digit).
 
 Metrics: `BasicAmount` (contract value), `BillAmount` (demanded so far), `ReceivedAmount` (paid), `BalanceAmount` (due), `OnAccountAmount` (unadjusted). Each also has a `...Tax` twin with the GST part.
 
-Example: `` SELECT `001_Unit_Charge_BalanceAmount`, `001_Unit_Charge_BalanceAmountTax` FROM housing_data WHERE BookingNo = '...'; ``
+Example: `SELECT [001_Unit_Charge_BalanceAmount], [001_Unit_Charge_BalanceAmountTax] FROM housing_data WHERE BookingNo = N'<BookingNo>';`

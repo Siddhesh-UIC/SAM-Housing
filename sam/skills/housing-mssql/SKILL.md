@@ -1,15 +1,16 @@
 ---
-name: housing-mysql
-description: Query the Hero Homes housing CRM MySQL database (single table housing_data) to answer customer chat questions about bookings, unit details, payments, outstanding balance, agreement (AFS) and registration status, and log service requests (payment/TDS/ledger updates, document requests, sale deed delays, handover, registry scheduling) with CALL raise_service_request. Use whenever a customer asks about their flat, booking, dues, documents, or wants something updated or scheduled.
+name: housing-mssql
+description: Query the Hero Homes housing CRM Microsoft SQL Server database (single table housing_data, T-SQL) to answer customer chat questions about bookings, unit details, payments, outstanding balance, agreement (AFS) and registration status, and log service requests (payment/TDS/ledger updates, document requests, sale deed delays, handover, registry scheduling) with EXEC raise_service_request. Use whenever a customer asks about their flat, booking, dues, documents, or wants something updated or scheduled.
 ---
 
-# Housing CRM (MySQL)
+# Housing CRM (Microsoft SQL Server)
 
-You are connected to MySQL database `housing` as user `sam_agent`.
+You are connected to SQL Server database `housing` as login `sam_agent`. Write **T-SQL** (not MySQL).
 You can **read** `housing_data` and `service_requests`, and **write only** through
-`CALL raise_service_request(...)`. You cannot UPDATE or DELETE anything.
+`EXEC raise_service_request ...`. You cannot UPDATE, INSERT or DELETE anything.
 
 Values in `<angle brackets>` below are placeholders: always substitute what the customer gave you.
+Use the column names **exactly** as listed — there are no columns called `unit_number`, `mobile`, `phone`, etc.
 
 ## 1. The data
 
@@ -19,7 +20,7 @@ Values in `<angle brackets>` below are placeholders: always substitute what the 
 |---|---|---|
 | Booking key | `BookingNo` | format `DDBOOKING/NNNNNNN-NN`, unique |
 | Application | `ApplicationNo`, `ApplicationDate` | format `DDFAPP/NNNNNNN-NN` |
-| Unit | `UnitCode`, `Floor` | format `T-08/NNNN` (sometimes with a letter, e.g. `T-08/NNNNA`). A unit can have an old **Cancel** row and a new **Active** row |
+| Unit | `UnitCode`, `Floor` | format `T-08/NNNN` (sometimes with a letter, e.g. `T-08/NNNNA`; ground floor is `T-08/0GNN`). A unit can have an old **Cancel** row and a new **Active** row |
 | Configuration / area | `Level4`, `SuperBuiltup`, `Builtup`, `Carpet` | areas in sq ft |
 | Status | `STATUS`, `CancelDate` | `Active` or `Cancel` |
 | Customer | `CustomerName`, `Co_Applicant_Name` | |
@@ -35,22 +36,24 @@ Values in `<angle brackets>` below are placeholders: always substitute what the 
 | Late payment fee | `LatePaymentFeeAccrued`, `LatePaymentFeeWaived`, `LatePaymentFeePaid`, `NetLatePaymentFeeAccrued` | quote `NetLatePaymentFeeAccrued` as what's still due |
 | Plan / contacts | `PaymentPlan`, `CRoName` (relationship manager), `SalesPersonName` | |
 
-All amounts are `DECIMAL` in INR. Charge-head breakdowns (`001_Unit_Charge_*`, `004_Extra_Charge_Maintenance_*`, …)
+All amounts are `DECIMAL` in INR. Charge-head breakdowns (`[001_Unit_Charge_*]`, `[004_Extra_Charge_Maintenance_*]`, …)
 are in [references/columns.md](references/columns.md).
 
 **Not in this database:** postal address, TDS deducted/certificates, individual payment transactions/ledger lines,
 sale deed status, possession/handover dates, registry appointments, dispatch/courier status. Never answer these
 from guesswork — collect what the customer tells you and log a service request.
 
-`AAdharNo`, `PanNo`, `Co_Applicant_AdharNo`, `Co_Applicant_PAN` are blocked for you.
+`AAdharNo`, `PanNo`, `Co_Applicant_AdharNo`, `Co_Applicant_PAN` are denied to you.
 
-## 2. SQL rules
+## 2. T-SQL rules
 
-- **Never `SELECT *`** — it fails (blocked columns). Always list columns.
-- Backtick columns that start with a digit: `` `001_Unit_Charge_BalanceAmount` ``.
+- **Never `SELECT *`** — it fails (denied columns). Always list columns.
+- Row limits use `SELECT TOP (n) ...` — there is **no `LIMIT`** in SQL Server.
+- Wrap columns that start with a digit in square brackets: `[001_Unit_Charge_BalanceAmount]`.
+- Strings: `N'<text>'`; double any single quote inside: `N'<text with ''quote''>'`.
 - After verification, filter every query by the verified `BookingNo`.
 - Never select `MobileNo*`/`EmailId*` except in the verification query.
-- Double any single quote inside a value: `'<text with ''quote''>'`.
+- A permission or "invalid column" error means your SQL is wrong, not that the database is down. Fix the query using this skill; never tell the customer there is a connectivity problem.
 
 ## 3. Queries
 
@@ -58,42 +61,43 @@ from guesswork — collect what the customer tells you and log a service request
 Normalise first: mobile → last 10 digits (drop `+91`, leading `0`, spaces, dashes);
 unit → `T-08/NNNN` (users may type `2501`, `T8-2501`, `T-08 2501`, `T08/2501`).
 ```sql
-SELECT BookingNo, CustomerName, UnitCode, STATUS FROM housing_data
-WHERE (UnitCode = '<T-08/NNNN>' OR BookingNo = '<DDBOOKING/NNNNNNN-NN>')
-  AND (MobileNo1 = '<10-digit mobile>' OR MobileNo2 = '<10-digit mobile>') LIMIT 5;
+SELECT TOP (5) BookingNo, CustomerName, UnitCode, STATUS FROM housing_data
+WHERE (UnitCode = N'<T-08/NNNN>' OR BookingNo = N'<DDBOOKING/NNNNNNN-NN>')
+  AND (MobileNo1 = N'<10-digit mobile>' OR MobileNo2 = N'<10-digit mobile>');
 ```
 Zero rows = not verified; do not say which part was wrong.
 
 **Unit details:**
 ```sql
 SELECT BookingNo, UnitCode, Floor, Level4, SuperBuiltup, Carpet, STATUS, PaymentPlan, CRoName, Co_Applicant_Name
-FROM housing_data WHERE BookingNo = '<BookingNo>';
+FROM housing_data WHERE BookingNo = N'<BookingNo>';
 ```
 
 **Balance / payment position:**
 ```sql
 SELECT TotalBasicWithTax, TotalBilledWithtTax, TotalPaidWithtTax, TotalOutstandingWithtTax,
        TotalOnAccountAmountWithtTax, TotalDiscount, NetLatePaymentFeeAccrued, PaymentPlan
-FROM housing_data WHERE BookingNo = '<BookingNo>';
+FROM housing_data WHERE BookingNo = N'<BookingNo>';
 ```
 
 **Agreement / registration / milestones:**
 ```sql
 SELECT BookingDate, Allotmentdate, Agreementdate, AgreementRegistrationNo, AgreementRegistrationDate,
        STATUS, CancelDate
-FROM housing_data WHERE BookingNo = '<BookingNo>';
+FROM housing_data WHERE BookingNo = N'<BookingNo>';
 ```
 
 **Existing requests for the booking:**
 ```sql
-SELECT id, created_at, category, subject, status FROM service_requests
-WHERE booking_no = '<BookingNo>' ORDER BY id DESC LIMIT 10;
+SELECT TOP (10) id, created_at, category, subject, status FROM service_requests
+WHERE booking_no = N'<BookingNo>' ORDER BY id DESC;
 ```
 Reference shown to customers is `SR-` + id padded to 5 digits (id 7 → `SR-00007`).
 
 **Log a request** (the only write):
 ```sql
-CALL raise_service_request('<BookingNo>', '<verified mobile>', '<CATEGORY>', '<subject, max 300 chars>', '<details>');
+EXEC raise_service_request @booking_no = N'<BookingNo>', @caller_phone = N'<verified mobile>',
+     @category = N'<CATEGORY>', @subject = N'<subject, max 300 chars>', @details = N'<details>';
 ```
 Returns `success`, `request_ref`, `message`. If `success = 0`, tell the customer the request could not be logged and why.
 
@@ -111,4 +115,4 @@ Returns `success`, `request_ref`, `message`. If `success = 0`, tell the customer
 
 1. The customer is verified for exactly one booking (several units in one message → one call per unit).
 2. You have read back the category and a one-line subject, and the customer said yes.
-3. `details` contains every fact the customer gave (dates, amounts, form numbers, postal address, bank name).
+3. `@details` contains every fact the customer gave (dates, amounts, form numbers, postal address, bank name).
