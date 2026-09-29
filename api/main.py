@@ -52,10 +52,54 @@ def _serialize(rows: list[dict]) -> list[dict]:
         out.append(d)
     return out
 
+@app.middleware("http")
+async def log_agent_calls(request: Request, call_next):
+    from starlette.concurrency import run_in_threadpool
+    start = time.time()
+    
+    body = b""
+    if request.method in ["POST", "PUT", "PATCH"]:
+        body = await request.body()
+        async def rcv(): return {"type": "http.request", "body": body}
+        request._receive = rcv
+
+    response = await call_next(request)
+    ms = round((time.time() - start) * 1000, 1)
+
+    if not request.url.path.startswith("/admin") and not request.url.path.startswith("/static") and request.url.path != "/":
+        detail = unquote(request.url.query) if request.url.query else body.decode('utf-8', errors='ignore')
+        if detail:
+            detail = detail[:500]
+        try:
+            await run_in_threadpool(
+                query, "INSERT INTO api_request_log (method, path, detail, status, duration_ms) VALUES (%s, %s, %s, %s, %s)",
+                (request.method, unquote(request.url.path), detail or None, response.status_code, ms)
+            )
+        except Exception as e:
+            print(f"Log err: {e}")
+    return response
+
 @app.get("/health", tags=["system"])
 def health():
     query("SELECT 1")
     return {"status": "healthy", "service": "sam-housing-service"}
+
+@app.post("/admin/query", include_in_schema=False)
+async def execute_query(request: Request):
+    """Raw SQL execution endpoint for the UI to run queries."""
+    data = await request.json()
+    sql = data.get("sql", "").strip()
+    if not sql:
+        raise HTTPException(status_code=400, detail="Empty query")
+    try:
+        results = query(sql)
+        return _serialize(results)
+    except Exception as e:
+         raise HTTPException(status_code=400, detail=str(e))
+
+@app.get("/admin/logs", include_in_schema=False)
+def get_logs(limit: int = Query(200)):
+    return _serialize(query("SELECT * FROM api_request_log ORDER BY id DESC LIMIT %s", (limit,)))
 
 @app.get("/admin/tables/housing_data", include_in_schema=False)
 def get_housing_data():

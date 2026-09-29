@@ -4,7 +4,7 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>SAM Housing — Data Viewer</title>
+    <title>SAM Housing — Admin Dashboard</title>
     <style>
         :root {
             --bg: #0f172a;
@@ -26,30 +26,49 @@
             font-family: var(--font);
             background: var(--bg);
             color: var(--text);
-            padding: 1rem;
+            padding: 1.5rem;
         }
 
         h1 {
-            font-size: 1.4rem;
-            margin-bottom: 1rem;
+            font-size: 1.5rem;
+            margin-bottom: 1.5rem;
             display: flex;
             align-items: center;
             gap: .5rem;
         }
 
         h1 span {
-            font-size: .75rem;
+            font-size: .8rem;
             color: var(--muted);
             background: var(--card);
-            padding: .2rem .5rem;
+            padding: .3rem .6rem;
             border-radius: 4px;
+        }
+
+        .tabs {
+            display: flex;
+            gap: 1rem;
+            border-bottom: 1px solid var(--border);
+            margin-bottom: 1.5rem;
+        }
+
+        .tab {
+            padding: .5rem 1rem;
+            cursor: pointer;
+            color: var(--muted);
+            border-bottom: 2px solid transparent;
+            font-weight: 500;
+        }
+
+        .tab.active {
+            color: var(--accent);
+            border-bottom-color: var(--accent);
         }
 
         table {
             width: 100%;
             border-collapse: collapse;
-            font-size: .78rem;
-            margin-bottom: 1rem;
+            font-size: .85rem;
         }
 
         th {
@@ -57,53 +76,185 @@
             position: sticky;
             top: 0;
             text-align: left;
-            padding: .5rem;
+            padding: .6rem;
             color: var(--muted);
-            border-bottom: 2px solid var(--accent);
+            border-bottom: 2px solid var(--border);
             white-space: nowrap;
         }
 
         td {
-            padding: .3rem .5rem;
+            padding: .4rem .6rem;
             border-bottom: 1px solid var(--border);
-            max-width: 200px;
+            max-width: 250px;
             white-space: nowrap;
             overflow: hidden;
             text-overflow: ellipsis;
         }
 
         tr:hover td {
-            background: rgba(59, 130, 246, .07);
+            background: rgba(59, 130, 246, .1);
         }
 
         .scroll {
             overflow-x: auto;
-            max-height: 85vh;
+            max-height: 75vh;
             overflow-y: auto;
             border: 1px solid var(--border);
-            border-radius: 8px;
+            border-radius: 6px;
+            background: var(--card);
+        }
+
+        .panel {
+            display: none;
+        }
+
+        .panel.active {
+            display: block;
+        }
+
+        /* Query Editor styles */
+        .query-box {
+            width: 100%;
+            height: 120px;
+            background: #000;
+            color: #fff;
+            font-family: monospace;
+            padding: 1rem;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            margin-bottom: 1rem;
+            outline: none;
+            resize: vertical;
+        }
+
+        .btn {
+            background: var(--accent);
+            color: #fff;
+            border: none;
+            padding: .6rem 1.2rem;
+            cursor: pointer;
+            border-radius: 4px;
+            font-weight: 600;
+            font-size: .9rem;
+            transition: background .2s;
+        }
+
+        .btn:hover {
+            background: #2563eb;
+        }
+
+        .error {
+            color: #f87171;
+            background: rgba(248, 113, 113, .1);
+            padding: 1rem;
+            border-radius: 6px;
+            margin-bottom: 1rem;
+            display: none;
         }
     </style>
 </head>
 
 <body>
-    <h1>🏠 SAM Housing — Data Viewer (Flat File from Excel) <span>localhost:8000</span></h1>
-    <div class="scroll" id="table-area">Loading massive flat table...</div>
+    <h1>🏠 SAM Housing — Admin Dashboard <span>localhost:8000</span></h1>
+
+    <div class="tabs">
+        <div class="tab active" onclick="switchTab('data')">Raw Data Viewer</div>
+        <div class="tab" onclick="switchTab('query')">SQL Query</div>
+        <div class="tab" onclick="switchTab('logs')">API Logs</div>
+    </div>
+
+    <!-- Raw Data Panel -->
+    <div id="data-panel" class="panel active">
+        <div class="scroll" id="data-table">Loading massive flat table...</div>
+    </div>
+
+    <!-- Query Panel -->
+    <div id="query-panel" class="panel">
+        <textarea id="sql-input" class="query-box"
+            placeholder="Write your SQL here...&#10;Example: SELECT CustomerName, BookingNo FROM housing_data WHERE STATUS = 'Active' LIMIT 10;"></textarea>
+        <div style="margin-bottom: 1rem;"><button class="btn" onclick="runQuery()">Run Query</button></div>
+        <div id="query-error" class="error"></div>
+        <div class="scroll" id="query-result"><em>Results will appear here</em></div>
+    </div>
+
+    <!-- Logs Panel -->
+    <div id="logs-panel" class="panel">
+        <div class="scroll" id="logs-table">Loading logs...</div>
+    </div>
+
     <script>
         function h(s) { return s == null ? '' : String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;'); }
-        (async () => {
+
+        function renderTable(rows, containerId) {
+            if (!rows || !rows.length) {
+                document.getElementById(containerId).innerHTML = '<p style="padding:1rem;">No data found / Empty result.</p>';
+                return;
+            }
+            const cols = Object.keys(rows[0]);
+            let html = '<table><tr>' + cols.map(c => `<th>${h(c)}</th>`).join('') + '</tr>';
+            rows.forEach(r => {
+                html += '<tr>' + cols.map(c => `<td title="${h(r[c])}">${h(r[c])}</td>`).join('') + '</tr>';
+            });
+            html += '</table>';
+            document.getElementById(containerId).innerHTML = html;
+        }
+
+        async function loadData() {
             try {
                 const rows = await (await fetch(`/admin/tables/housing_data`)).json();
-                if (!rows.length) { document.getElementById('table-area').innerHTML = '<p>No data</p>'; return; }
-                const cols = Object.keys(rows[0]);
-                let html = '<table><tr>' + cols.map(c => `<th>${h(c)}</th>`).join('') + '</tr>';
-                rows.forEach(r => {
-                    html += '<tr>' + cols.map(c => `<td title="${h(r[c])}">${h(r[c])}</td>`).join('') + '</tr>';
+                renderTable(rows, 'data-table');
+            } catch (e) { document.getElementById('data-table').innerHTML = `<p style="padding:1rem;">Error: ${e}</p>`; }
+        }
+
+        async function loadLogs() {
+            try {
+                const rows = await (await fetch(`/admin/logs`)).json();
+                renderTable(rows, 'logs-table');
+            } catch (e) { document.getElementById('logs-table').innerHTML = `<p style="padding:1rem;">Error: ${e}</p>`; }
+        }
+
+        async function runQuery() {
+            const errDiv = document.getElementById('query-error');
+            const resDiv = document.getElementById('query-result');
+            errDiv.style.display = 'none';
+            resDiv.innerHTML = '<p style="padding:1rem;">Running query...</p>';
+
+            const sql = document.getElementById('sql-input').value.trim();
+            if (!sql) { errDiv.innerText = "Query cannot be empty"; errDiv.style.display = 'block'; resDiv.innerHTML = ''; return; }
+
+            try {
+                const res = await fetch('/admin/query', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ sql: sql })
                 });
-                html += '</table>';
-                document.getElementById('table-area').innerHTML = html;
-            } catch (e) { document.getElementById('table-area').innerHTML = `<p>${e}</p>`; }
-        })();
+                const data = await res.json();
+                if (!res.ok) {
+                    errDiv.innerText = data.detail || 'Query error';
+                    errDiv.style.display = 'block';
+                    resDiv.innerHTML = '';
+                } else {
+                    renderTable(data, 'query-result');
+                }
+            } catch (e) {
+                errDiv.innerText = e.toString();
+                errDiv.style.display = 'block';
+                resDiv.innerHTML = '';
+            }
+        }
+
+        function switchTab(tabId) {
+            document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+            document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+
+            event.target.classList.add('active');
+            document.getElementById(tabId + '-panel').classList.add('active');
+
+            if (tabId === 'logs') loadLogs();
+        }
+
+        // Init
+        window.onload = loadData;
     </script>
 </body>
 
