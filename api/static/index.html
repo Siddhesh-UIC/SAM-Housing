@@ -183,7 +183,7 @@
     </div>
 
     <script>
-        function h(s) { return s == null ? '' : String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;'); }
+        function h(s) { return s == null ? '' : String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;'); }
 
         function renderTable(rows, containerId) {
             if (!rows || !rows.length) {
