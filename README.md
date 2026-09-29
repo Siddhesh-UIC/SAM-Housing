@@ -56,6 +56,8 @@ The query to read `agent_queries` is in [tests/TEST_CASES.md](tests/TEST_CASES.m
 
 ## Connect SAM
 
+Full step-by-step with every connector setting: [sam/SETUP.md](sam/SETUP.md).
+
 1. **Builder → Connectors → Create Connector → Microsoft SQL Server**: name `Housing CRM Database`,
    host `127.0.0.1`, port `1433`, database `housing`, user `sam_agent` / `sam_agent123`,
    trust server certificate on.
