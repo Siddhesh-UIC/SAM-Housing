@@ -1,0 +1,2 @@
+# Seed data has line breaks inside string values; CRLF conversion would change the data.
+db/init/*.sql text eol=lf

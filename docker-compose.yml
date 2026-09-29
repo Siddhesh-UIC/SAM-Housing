@@ -1,42 +1,60 @@
+x-sa-password: &sa_password "Housing#Sa2026"
+
 services:
   db:
-    image: mysql:8.0
+    image: mcr.microsoft.com/mssql/server:2022-latest
     container_name: sam-housing-db
     environment:
-      MYSQL_ROOT_PASSWORD: rootpass
-      MYSQL_DATABASE: housing
-      MYSQL_USER: housing
-      MYSQL_PASSWORD: housing123
-    command: >
-      --general-log=1 --general-log-file=/var/lib/mysql/general.log
-      --log-output=FILE --default-authentication-plugin=mysql_native_password
+      ACCEPT_EULA: "Y"
+      MSSQL_PID: Developer
+      MSSQL_SA_PASSWORD: *sa_password
     ports:
-      - "${MYSQL_PORT:-3306}:3306"
+      - "${MSSQL_PORT:-1433}:1433"
     volumes:
-      - ./db/init:/docker-entrypoint-initdb.d:ro
-      - mysqldata:/var/lib/mysql
+      - mssqldata:/var/opt/mssql
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-u", "housing", "-phousing123"]
-      interval: 3s
+      test: ["CMD-SHELL", "/opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P \"$$MSSQL_SA_PASSWORD\" -C -Q 'SELECT 1' -b -o /dev/null"]
+      interval: 5s
       retries: 30
+      start_period: 20s
+
+  # One-shot seed: loads db/init/01_schema.sql only when the housing database doesn't exist yet
+  # (same behaviour as MySQL's init dir). Reset with `docker compose down -v`.
+  db-init:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    container_name: sam-housing-db-init
+    environment:
+      MSSQL_SA_PASSWORD: *sa_password
+    volumes:
+      - ./db/init:/init:ro
+    entrypoint:
+      - /bin/bash
+      - -c
+      - |
+        SQL="/opt/mssql-tools18/bin/sqlcmd -S db -U sa -P $$MSSQL_SA_PASSWORD -C -b"
+        if [ "$$($$SQL -h -1 -W -Q "SET NOCOUNT ON; SELECT COUNT(*) FROM sys.databases WHERE name = 'housing'")" = "1" ]; then
+          echo "housing database exists, skipping seed"
+        else
+          $$SQL -f 65001 -i /init/01_schema.sql && echo "seed loaded"
+        fi
+    depends_on:
+      db:
+        condition: service_healthy
 
   api:
     build: ./api
     container_name: sam-housing-api
     environment:
       DATABASE_HOST: db
-      DATABASE_PORT: 3306
+      DATABASE_PORT: 1433
       DATABASE_USER: housing
       DATABASE_PASSWORD: housing123
       DATABASE_NAME: housing
-      MYSQL_LOG_FILE: /mysqldata/general.log
     ports:
       - "${API_PORT:-8000}:8000"
-    volumes:
-      - mysqldata:/mysqldata:ro
     depends_on:
-      db:
-        condition: service_healthy
+      db-init:
+        condition: service_completed_successfully
 
 volumes:
-  mysqldata:
+  mssqldata:
